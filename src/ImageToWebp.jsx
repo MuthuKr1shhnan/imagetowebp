@@ -1,42 +1,54 @@
 import { useState, useRef } from "react";
+import JSZip from "jszip";
 import ParticlesBackground from "./ParticlesBackground";
 
 export default function ImageToWebp() {
-  const [preview, setPreview] = useState(null);
-  const [webp, setWebp] = useState(null);
+  const [previews, setPreviews] = useState([]);
+  const [webps, setWebps] = useState([]);
+  const [hovered, setHovered] = useState(null);
   const dropRef = useRef(null);
 
-  const handleFile = (file) => {
-    if (!file) return;
+  const handleFile = (files) => {
+    if (!files) return;
 
-    const img = new Image();
-    img.src = URL.createObjectURL(file);
+    const newPreviews = [];
+    Array.from(files).forEach((file) => {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
 
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
 
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
 
-      canvas.toBlob(
-        (blob) => {
-          const webpUrl = URL.createObjectURL(blob);
-          setWebp(webpUrl);
-        },
-        "image/webp",
-        0.9
-      );
-    };
+        canvas.toBlob(
+          (blob) => {
+            const webpUrl = URL.createObjectURL(blob);
+            setWebps((prev) => [...prev, { name: file.name, url: webpUrl }]);
+          },
+          "image/webp",
+          0.9
+        );
+      };
 
-    setPreview(img.src);
+      newPreviews.push({ name: file.name, src: img.src });
+    });
+
+    const allPreviews = [...previews, ...newPreviews];
+    setPreviews(allPreviews);
+
+    if (!hovered && allPreviews.length > 0) {
+      setHovered(allPreviews[0]);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     dropRef.current.classList.remove("border-green-500", "border-4");
-    handleFile(e.dataTransfer.files[0]);
+    handleFile(e.dataTransfer.files);
   };
 
   const handleDragOver = (e) => {
@@ -48,25 +60,39 @@ export default function ImageToWebp() {
     dropRef.current.classList.remove("border-green-500", "border-4");
   };
 
+  // 🔥 ZIP DOWNLOAD — only logic changed
+  const downloadAll = async () => {
+    const zip = new JSZip();
+    const folder = zip.folder("converted");
+
+    for (const file of webps) {
+      const response = await fetch(file.url);
+      const blob = await response.blob();
+      const baseName = file.name.split(".")[0];
+      folder.file(`${baseName}.webp`, blob);
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(zipBlob);
+    link.download = "converted_images.zip";
+    link.click();
+  };
+
   return (
     <section className="relative w-full min-h-screen bg-black overflow-hidden flex items-center justify-center px-4 py-10">
-      
-      {/* ⭐ 3D Particle Background */}
       <ParticlesBackground />
 
-      {/* ⭐ Logo */}
       <h1 className="absolute md:left-10 left-5 top-10 text-white text-[24px] md:text-[32px] font-bold z-10">
         Zero
       </h1>
 
-      {/* ⭐ Main Card */}
-      <div className="w-full sm:w-[90%] md:w-[70%] lg:w-[45%] xl:w-[35%] p-6 bg-[#1a1a1a]/70 backdrop-blur-md shadow-lg rounded-xl flex flex-col">
-        
+      <div className="w-full sm:w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] p-6 bg-[#1a1a1a]/70 backdrop-blur-md shadow-lg rounded-xl flex flex-col">
         <h2 className="text-2xl font-semibold text-center mb-4 text-white">
           Image to WebP Converter
         </h2>
 
-        {/* Upload Box */}
+        {/* UPLOAD BOX */}
         <div
           ref={dropRef}
           onDrop={handleDrop}
@@ -82,7 +108,8 @@ export default function ImageToWebp() {
             accept="image/*"
             className="hidden"
             id="fileUpload"
-            onChange={(e) => handleFile(e.target.files[0])}
+            multiple
+            onChange={(e) => handleFile(e.target.files)}
           />
 
           <label
@@ -93,35 +120,49 @@ export default function ImageToWebp() {
           </label>
         </div>
 
-        {/* Preview Section */}
-        {preview && (
-          <div className="mt-6">
-            <h3 className="text-lg font-medium mb-2 text-white">
-              Original Image Preview:
-            </h3>
-            <div className="w-full h-64 sm:h-80 md:h-96 bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center">
+        {/* --- SPLIT UI --- */}
+        <div className="mt-6 flex flex-col md:flex-row gap-5">
+          {/* LEFT - LARGE PREVIEW */}
+          <div className="flex-1 bg-gray-900 rounded-lg h-64 sm:h-80 md:h-auto overflow-hidden flex items-center justify-center">
+            {previews.length > 0 && (
               <img
-                src={preview}
-                alt="Preview"
+                src={hovered?.src || previews[0].src}
+                alt="Large Preview"
                 className="w-full h-full object-contain"
               />
+            )}
+          </div>
+
+          {/* RIGHT - THUMBNAILS + DOWNLOAD */}
+          <div className="w-full md:w-[40%] flex flex-col justify-between">
+            {/* THUMBNAILS GRID */}
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+              {previews.map((preview, idx) => (
+                <div
+                  key={idx}
+                  className="w-full h-20 bg-gray-700 rounded overflow-hidden cursor-pointer border border-transparent hover:border-blue-500 transition"
+                  onClick={() => setHovered(preview)}
+                >
+                  <img
+                    src={preview.src}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ))}
             </div>
-          </div>
-        )}
 
-        {/* Download Button */}
-        {webp && (
-          <div className="mt-6 text-center">
-            <a
-              href={webp}
-              download="converted_zero.webp"
-              className="px-6 py-3 bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition"
-            >
-              Download WebP
-            </a>
+            {/* DOWNLOAD ALL */}
+            {webps.length > 0 && (
+              <button
+                onClick={downloadAll}
+                className="mt-4 w-full px-6 py-3 bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition"
+              >
+                Download All
+              </button>
+            )}
           </div>
-        )}
-
+        </div>
       </div>
     </section>
   );
