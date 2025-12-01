@@ -3,16 +3,14 @@ import JSZip from "jszip";
 import ParticlesBackground from "./ParticlesBackground";
 
 export default function ImageToWebp() {
-  const [previews, setPreviews] = useState([]);
-  const [webps, setWebps] = useState([]);
-  const [hovered, setHovered] = useState(null);
+  const [files, setFiles] = useState([]);
   const dropRef = useRef(null);
 
-  const handleFile = (files) => {
-    if (!files) return;
+  const handleFile = (fileList) => {
+    if (!fileList) return;
 
-    const newPreviews = [];
-    Array.from(files).forEach((file) => {
+    const newFiles = [];
+    Array.from(fileList).forEach((file) => {
       const img = new Image();
       img.src = URL.createObjectURL(file);
 
@@ -27,22 +25,20 @@ export default function ImageToWebp() {
         canvas.toBlob(
           (blob) => {
             const webpUrl = URL.createObjectURL(blob);
-            setWebps((prev) => [...prev, { name: file.name, url: webpUrl }]);
+            newFiles.push({
+              name: file.name,
+              src: img.src,
+              webp: webpUrl,
+              originalSize: (file.size / 1024).toFixed(2) + " KB",
+              convertedSize: (blob.size / 1024).toFixed(2) + " KB",
+            });
+            setFiles((prev) => [...prev, ...newFiles]);
           },
           "image/webp",
           0.9
         );
       };
-
-      newPreviews.push({ name: file.name, src: img.src });
     });
-
-    const allPreviews = [...previews, ...newPreviews];
-    setPreviews(allPreviews);
-
-    if (!hovered && allPreviews.length > 0) {
-      setHovered(allPreviews[0]);
-    }
   };
 
   const handleDrop = (e) => {
@@ -60,13 +56,13 @@ export default function ImageToWebp() {
     dropRef.current.classList.remove("border-green-500", "border-4");
   };
 
-  // 🔥 ZIP DOWNLOAD — only logic changed
+  // 🔥 ZIP DOWNLOAD
   const downloadAll = async () => {
     const zip = new JSZip();
     const folder = zip.folder("converted");
 
-    for (const file of webps) {
-      const response = await fetch(file.url);
+    for (const file of files) {
+      const response = await fetch(file.webp);
       const blob = await response.blob();
       const baseName = file.name.split(".")[0];
       folder.file(`${baseName}.webp`, blob);
@@ -80,15 +76,13 @@ export default function ImageToWebp() {
   };
 
   return (
-    <section className="relative w-full min-h-screen bg-black overflow-hidden flex items-center justify-center px-4 py-10">
+    <section className='relative w-full min-h-screen bg-black overflow-hidden flex items-center justify-center px-4 py-10'>
       <ParticlesBackground />
-
-      <h1 className="absolute md:left-10 left-5 top-10 text-white text-[24px] md:text-[32px] font-bold z-10">
+      <h1 className='absolute md:left-10 left-5 top-10 text-white text-[24px] md:text-[32px] font-bold z-10'>
         Zero
       </h1>
-
-      <div className="w-full sm:w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] p-6 bg-[#1a1a1a]/70 backdrop-blur-md shadow-lg rounded-xl flex flex-col">
-        <h2 className="text-2xl font-semibold text-center mb-4 text-white">
+      <div className='w-full sm:w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] p-6 bg-white/10 backdrop-blur-md shadow-lg rounded-xl flex flex-col'>
+        <h2 className='text-2xl font-semibold text-center mb-6 text-white'>
           Image to WebP Converter
         </h2>
 
@@ -98,71 +92,64 @@ export default function ImageToWebp() {
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
-          className="w-full border-2 border-dashed border-gray-600 rounded-xl p-6 sm:p-8 text-center cursor-pointer transition-all duration-200"
+          className='w-full border-2 border-dashed border-gray-400 rounded-xl p-8 text-center cursor-pointer transition-all duration-200 bg-black/30'
         >
-          <p className="text-gray-300 mb-2">Drag & Drop your image here</p>
-          <p className="text-gray-500">or click to upload</p>
+          <p className='text-gray-300 mb-2'>Drag & Drop your images here</p>
+          <p className='text-gray-500'>or click to upload</p>
 
           <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            id="fileUpload"
+            type='file'
+            accept='image/*'
+            className='hidden'
+            id='fileUpload'
             multiple
             onChange={(e) => handleFile(e.target.files)}
           />
 
           <label
-            htmlFor="fileUpload"
-            className="inline-block mt-3 px-5 py-2 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition"
+            htmlFor='fileUpload'
+            className='inline-block mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition'
           >
-            Choose Image
+            Choose Images
           </label>
         </div>
 
-        {/* --- SPLIT UI --- */}
-        <div className="mt-6 flex flex-col md:flex-row gap-5">
-          {/* LEFT - LARGE PREVIEW */}
-          <div className="flex-1 bg-gray-900 rounded-lg h-64 sm:h-80 md:h-auto overflow-hidden flex items-center justify-center">
-            {previews.length > 0 && (
-              <img
-                src={hovered?.src || previews[0].src}
-                alt="Large Preview"
-                className="w-full h-full object-contain"
-              />
-            )}
-          </div>
-
-          {/* RIGHT - THUMBNAILS + DOWNLOAD */}
-          <div className="w-full md:w-[40%] flex flex-col justify-between">
-            {/* THUMBNAILS GRID */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
-              {previews.map((preview, idx) => (
-                <div
-                  key={idx}
-                  className="w-full h-20 bg-gray-700 rounded overflow-hidden cursor-pointer border border-transparent hover:border-blue-500 transition"
-                  onClick={() => setHovered(preview)}
-                >
-                  <img
-                    src={preview.src}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ))}
-            </div>
-
-            {/* DOWNLOAD ALL */}
-            {webps.length > 0 && (
-              <button
-                onClick={downloadAll}
-                className="mt-4 w-full px-6 py-3 bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition"
+        {/* FILE LIST */}
+        {files.length > 0 && (
+          <div className='mt-6 bg-gray-900 rounded-lg p-4 max-h-64 overflow-y-auto'>
+            {files.map((file, idx) => (
+              <div
+                key={idx}
+                className='flex items-center justify-between text-sm text-gray-300 border-b border-gray-700 py-2'
               >
-                Download All
-              </button>
-            )}
+                <span className='truncate w-[40%]'>{file.name}</span>
+                <span className='w-[20%] text-gray-400'>
+                  {file.originalSize}
+                </span>
+                <span className='w-[20%] text-green-400'>
+                  {file.convertedSize}
+                </span>
+                <a
+                  href={file.webp}
+                  download={`${file.name.split(".")[0]}.webp`}
+                  className='text-blue-400 hover:underline'
+                >
+                  Download
+                </a>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
+
+        {/* DOWNLOAD ALL */}
+        {files.length > 0 && (
+          <button
+            onClick={downloadAll}
+            className='mt-6 w-full px-6 py-3 bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition'
+          >
+            Download All as ZIP
+          </button>
+        )}
       </div>
     </section>
   );
