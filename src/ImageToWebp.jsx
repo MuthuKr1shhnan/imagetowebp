@@ -1,14 +1,11 @@
 import { useState } from "react";
 import JSZip from "jszip";
-import ParticlesBackground from "./ParticlesBackground";
 import FileGetter from "./components/FileGetter";
 
 export default function ImageToWebp() {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
 
-  // NEW STATES
-  const [isChoosingSize, setIsChoosingSize] = useState(false);
   const [quality, setQuality] = useState(0.9);
   const [estimatedSize, setEstimatedSize] = useState(null);
 
@@ -33,13 +30,24 @@ export default function ImageToWebp() {
 
             const single = {
               name: file.name,
+              file, // keep original file reference
               src: img.src,
               webp: webpUrl,
               originalSize: (file.size / 1024).toFixed(2) + " KB",
               convertedSize: (blob.size / 1024).toFixed(2) + " KB",
             };
 
-            setFiles((prev) => [...prev, single]);
+            setFiles((prev) => {
+              const updated = [...prev, single];
+
+              // AUTO SELECT FIRST IMAGE
+              if (updated.length === 1) {
+                setSelectedFile(updated[0]);
+                setEstimatedSize(updated[0].convertedSize);
+              }
+
+              return updated;
+            });
           },
           "image/webp",
           0.9
@@ -48,22 +56,15 @@ export default function ImageToWebp() {
     });
   };
 
-  // OPEN SIZE CHOOSING PANEL
-  const openSizeChooser = (file) => {
-    setSelectedFile(file);
-    setIsChoosingSize(true);
-    setQuality(0.9);
-    setEstimatedSize(file.convertedSize);
-  };
-
-  // UPDATE SLIDER => LIVE SIZE ESTIMATE
   const updateQuality = (val) => {
-    setQuality(val);
+    // Clamp quality to avoid bloating
+    const safeQuality = Math.min(val, 0.9);
+    setQuality(safeQuality);
 
     if (!selectedFile) return;
 
     const img = new Image();
-    img.src = selectedFile.src;
+    img.src = URL.createObjectURL(selectedFile.file);
 
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -75,20 +76,27 @@ export default function ImageToWebp() {
 
       canvas.toBlob(
         (blob) => {
-          setEstimatedSize((blob.size / 1024).toFixed(2) + " KB");
+          const sizeKB = (blob.size / 1024).toFixed(2);
+          const originalKB = (selectedFile.file.size / 1024).toFixed(2);
+
+          // Prevent unrealistic size inflation
+          setEstimatedSize(
+            parseFloat(sizeKB) > parseFloat(originalKB)
+              ? `${originalKB} KB (no gain)`
+              : `${sizeKB} KB`
+          );
         },
         "image/webp",
-        val
+        safeQuality
       );
     };
   };
 
-  // APPLY SIZE (RE-CONVERT IMAGE)
   const applyQuality = () => {
     if (!selectedFile) return;
 
     const img = new Image();
-    img.src = selectedFile.src;
+    img.src = URL.createObjectURL(selectedFile.file);
 
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -119,8 +127,6 @@ export default function ImageToWebp() {
             webp: newWebp,
             convertedSize: (blob.size / 1024).toFixed(2) + " KB",
           }));
-
-          setIsChoosingSize(false);
         },
         "image/webp",
         quality
@@ -128,18 +134,19 @@ export default function ImageToWebp() {
     };
   };
 
-  // REMOVE FILE
   const removeFile = (name) => {
     setFiles((prev) => {
       const filtered = prev.filter((f) => f.name !== name);
+
       if (selectedFile?.name === name) {
         setSelectedFile(filtered[0] || null);
+        if (filtered[0]) setEstimatedSize(filtered[0].convertedSize);
       }
+
       return filtered;
     });
   };
 
-  // ZIP DOWNLOAD
   const downloadAll = async () => {
     const zip = new JSZip();
     const folder = zip.folder("converted");
@@ -171,10 +178,21 @@ export default function ImageToWebp() {
         <div className="h-screen overflow-hidden bg-black grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* LEFT COLUMN */}
           <div className="rounded-lg flex relative flex-col m-5 p-4 overflow-y-auto">
+            {/* HEADINGS */}
+            <div className="flex items-center sticky bg-black -top-5 justify-between text-gray-400 px-4 pb-2 border-b border-gray-700 text-sm">
+              <span className="w-[40%]">File Name</span>
+              <span className="w-[20%]">Original</span>
+              <span className="w-[20%]">Converted</span>
+              <span className="w-[20%] text-right">Actions</span>
+            </div>
+
             {files.map((file, idx) => (
               <div
                 key={idx}
-                onClick={() => setSelectedFile(file)}
+                onClick={() => {
+                  setSelectedFile(file);
+                  setEstimatedSize(file.convertedSize);
+                }}
                 className={`flex items-center justify-between text-sm border-b border-gray-700 py-2 p-4 cursor-pointer transition ${
                   selectedFile?.name === file.name
                     ? "bg-gray-800 text-white"
@@ -186,12 +204,10 @@ export default function ImageToWebp() {
                   {file.originalSize}
                 </span>
 
-                {/* CLICK HERE TO OPEN SIZE CHOOSER */}
                 <span
                   className="w-[20%] text-green-400 hover:underline"
                   onClick={(e) => {
                     e.stopPropagation();
-                    openSizeChooser(file);
                   }}
                 >
                   {file.convertedSize}
@@ -242,35 +258,33 @@ export default function ImageToWebp() {
                   className="max-h-[50vh] max-w-full rounded-lg shadow-lg"
                 />
 
-                {/* SIZE CHOOSING UI */}
-                {isChoosingSize && (
-                  <div className="w-full mt-6 p-4 bg-gray-800 rounded-lg">
-                    <label className="text-gray-300 text-sm">
-                      Adjust Size (Quality): {quality}
-                    </label>
+                {/* SIZE PANEL */}
+                <div className="w-full mt-6 p-4 bg-gray-800 rounded-lg">
+                  <label className="text-gray-300 text-sm">
+                    Adjust Size (Quality): {quality}
+                  </label>
 
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="1"
-                      step="0.05"
-                      value={quality}
-                      onChange={(e) => updateQuality(Number(e.target.value))}
-                      className="w-full mt-2"
-                    />
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="0.9"
+                    step="0.05"
+                    value={quality}
+                    onChange={(e) => updateQuality(Number(e.target.value))}
+                    className="w-full mt-2"
+                  />
 
-                    <p className="text-green-400 mt-2">
-                      Estimated Size: {estimatedSize}
-                    </p>
+                  <p className="text-green-400 mt-2">
+                    Estimated Size: {estimatedSize}
+                  </p>
 
-                    <button
-                      onClick={applyQuality}
-                      className="w-full mt-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                    >
-                      Choose Size
-                    </button>
-                  </div>
-                )}
+                  <button
+                    onClick={applyQuality}
+                    className="w-full mt-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Choose Size
+                  </button>
+                </div>
               </>
             )}
           </div>
